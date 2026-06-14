@@ -15,6 +15,7 @@ import {
 } from "@/lib/services/rescue-workflow";
 import { getHealthOverview, getMedTrend } from "@/lib/trends";
 import { runNegotiation } from "@/lib/services/negotiation";
+import { buildReport } from "@/lib/services/report";
 import type { NegotiationCallArtifact } from "@/lib/artifacts";
 
 export type ToolHandlerMap = Partial<
@@ -25,9 +26,21 @@ export const toolHandlers: ToolHandlerMap = {
   get_medications: async (args) => {
     const patient = requiredPatient(args.patientId);
     const medications = medicationViews(patient);
+    // Spell out each medication and its urgency, and name the most urgent, so
+    // the model can act (for example pick which to rescue) without asking.
+    const lines = medications
+      .map(
+        (m) =>
+          `${m.name}: ${m.daysSupplyRemaining} days on hand, ${m.urgency} (${m.urgency === "overdue" ? "refill now" : m.urgency === "soon" ? "refill soon" : "on track"})`,
+      )
+      .join("; ");
+    const rank = { overdue: 0, soon: 1, ok: 2 } as const;
+    const mostUrgent = [...medications].sort(
+      (a, b) => rank[a.urgency] - rank[b.urgency],
+    )[0];
     return {
-      summary: `Listed ${medications.length} active medications for ${patient.displayName}.`,
-      data: { medications },
+      summary: `${patient.displayName} has ${medications.length} medications. ${lines}. The most urgent is ${mostUrgent.name} (${mostUrgent.daysSupplyRemaining} days on hand). Use these exact names if starting a rescue.`,
+      data: { medications, mostUrgentMedication: mostUrgent.name },
     };
   },
 
@@ -59,7 +72,15 @@ export const toolHandlers: ToolHandlerMap = {
     const medication = requiredString(args.medication, "medication");
     const rescueCase = await startRescueWorkflow({ patientId, medication });
     if (!rescueCase) {
-      throw new Error("Could not start rescue case for that patient and medication.");
+      // The medication did not match this patient. Tell the model which meds
+      // the patient actually has so it can retry with a valid one, rather than
+      // giving up. This keeps the flow self driving.
+      const patient = getPatient(patientId);
+      const names = patient?.medications.map((m) => m.name).join(", ") ?? "none";
+      return {
+        summary: `No medication matching "${medication}" was found for this patient. Their medications are: ${names}. Retry start_rescue with one of these exact names.`,
+        data: { error: "medication_not_found", availableMedications: names },
+      };
     }
     return {
       summary: latestSummary(rescueCase.timeline),
@@ -130,6 +151,18 @@ export const toolHandlers: ToolHandlerMap = {
     return {
       summary: "The patient rescue packet is ready.",
       data: { packet },
+    };
+  },
+
+  generate_report: async (args) => {
+    const caseId = requiredString(args.caseId, "caseId");
+    const report = await buildReport(caseId);
+    if (!report) throw new Error(`Case ${caseId} was not found.`);
+    const saved =
+      report.savings && report.savings > 0 ? `, saving ${report.savings} dollars` : "";
+    return {
+      summary: `Rescue report ready for ${report.patientName}: ${report.approvedAlternative ?? "the alternative"} reserved at ${report.pharmacyName ?? "the pharmacy"} for ${report.agreedPrice ?? "the agreed"} dollars${saved}. It can be exported to PDF or emailed to the doctor or pharmacy.`,
+      data: { report },
     };
   },
 };

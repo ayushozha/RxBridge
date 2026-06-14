@@ -185,6 +185,59 @@ function hostnameOf(url: string): string {
 const XAI_CHAT_ENDPOINT = "https://api.x.ai/v1/chat/completions";
 const DEFAULT_FAST_MODEL = "grok-4.20-0309-non-reasoning";
 
+export interface PharmacyFinding {
+  pharmacyName: string;
+  note: string;
+  likelyInStock: boolean;
+}
+
+/**
+ * Finds real pharmacies in the USA that may carry a medication, in realtime,
+ * using Grok web search. Returns a short list with a note each, or null if the
+ * search is unavailable so the caller can fall back to synthetic pharmacies.
+ */
+export async function grokFindPharmacies(args: {
+  medication: string;
+  region: string;
+  signal?: AbortSignal;
+}): Promise<PharmacyFinding[] | null> {
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      pharmacies: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            pharmacyName: { type: "string" },
+            note: { type: "string" },
+            likelyInStock: { type: "boolean" },
+          },
+          required: ["pharmacyName", "note", "likelyInStock"],
+        },
+      },
+    },
+    required: ["pharmacies"],
+  };
+
+  try {
+    const { data } = await grokStructuredSearch<{ pharmacies: PharmacyFinding[] }>({
+      system:
+        "You find real pharmacies in the United States that a patient could realistically use to fill a medication, using current web information. Prefer well known national chains and mail order options. For each, give the pharmacy name, a one line note on availability or how to check stock, and a best guess at whether it likely has the medication. Never use the em dash or en dash characters.",
+      user: `Find up to 4 pharmacies in ${args.region} a patient could use to fill ${args.medication} during a shortage. Include at least one mail order option.`,
+      schemaName: "pharmacy_finder",
+      schema,
+      signal: args.signal,
+    });
+    const list = Array.isArray(data?.pharmacies) ? data.pharmacies : [];
+    return list.length > 0 ? list.slice(0, 4) : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface NegotiationScriptLine {
   speaker: "agent" | "pharmacy";
   text: string;

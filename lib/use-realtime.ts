@@ -62,6 +62,10 @@ export function useRealtime() {
   // Set synchronously at the very start of connect(), before any await, so a
   // second concurrent call cannot slip past the guard during the token fetch.
   const connectingRef = useRef(false);
+  // True while a model response is generating. The realtime API rejects a
+  // second response.create while one is active, so we queue instead.
+  const responseActiveRef = useRef(false);
+  const pendingResponseRef = useRef(false);
 
   const patch = useCallback((p: Partial<RealtimeState>) => {
     setState((s) => ({ ...s, ...p }));
@@ -147,7 +151,7 @@ export function useRealtime() {
       } catch {
         args = {};
       }
-      let summary = "That tool could not be run.";
+      let output = "That tool could not be run.";
       try {
         const res = await fetch("/api/tool", {
           method: "POST",
@@ -156,15 +160,23 @@ export function useRealtime() {
         });
         const json = await res.json();
         if (res.ok) {
-          summary = json.summary ?? summary;
+          // Give the model the structured result, not just a sentence, so it
+          // can chain off real values (case ids, urgent medication, etc.) and
+          // does not ask the patient to read them off the screen.
+          output = json.summary ?? output;
+          if (json.data) {
+            output += `\n\nStructured result (use these exact values to continue, do not ask the patient for them):\n${JSON.stringify(json.data)}`;
+          }
           if (json.artifact) attachArtifact(json.artifact as Artifact);
         } else {
-          summary = json.error ?? summary;
+          output = json.error ?? output;
         }
       } catch {
-        // keep the fallback summary
+        // keep the fallback output
       }
-      // Send the tool output back to the model and ask it to respond.
+      // Send the tool output back to the model. Only ask for a new response if
+      // one is not already generating; otherwise queue it and let response.done
+      // fire it, so we never hit "active response in progress".
       const dc = dcRef.current;
       if (dc && dc.readyState === "open") {
         dc.send(
@@ -173,11 +185,16 @@ export function useRealtime() {
             item: {
               type: "function_call_output",
               call_id: callId,
-              output: summary,
+              output,
             },
           }),
         );
-        dc.send(JSON.stringify({ type: "response.create" }));
+        if (responseActiveRef.current) {
+          pendingResponseRef.current = true;
+        } else {
+          responseActiveRef.current = true;
+          dc.send(JSON.stringify({ type: "response.create" }));
+        }
       }
     },
     [attachArtifact],
@@ -226,10 +243,25 @@ export function useRealtime() {
           closeTurn("assistant");
           break;
 
-        case "response.done":
+        case "response.created":
+          responseActiveRef.current = true;
+          break;
+
+        case "response.done": {
           patch({ assistantSpeaking: false });
           closeTurn("assistant");
+          responseActiveRef.current = false;
+          // If a tool result arrived mid response, ask for the follow up now.
+          if (pendingResponseRef.current) {
+            pendingResponseRef.current = false;
+            const dc = dcRef.current;
+            if (dc && dc.readyState === "open") {
+              responseActiveRef.current = true;
+              dc.send(JSON.stringify({ type: "response.create" }));
+            }
+          }
           break;
+        }
 
         // The model asked to call a tool. Run it, render the artifact, and
         // send the result back so the model can speak about it.

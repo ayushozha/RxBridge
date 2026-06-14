@@ -1,7 +1,11 @@
 import { createRescueCase, getRescueCase, saveRescueCase, withTimeline } from "@/lib/case-store";
 import { getPatient } from "@/lib/patient-data";
 import type { RescueCase } from "@/lib/rescue-types";
-import { checkOriginalStock, confirmFill } from "@/lib/services/pharmacy";
+import {
+  checkOriginalStock,
+  confirmFill,
+  findAlternativeStockLive,
+} from "@/lib/services/pharmacy";
 import { checkShortage } from "@/lib/services/shortage";
 import { findSubstitutionCandidates } from "@/lib/services/substitution";
 import { screenCandidates } from "@/lib/services/safety";
@@ -84,15 +88,26 @@ export async function startRescueWorkflow(
     return await saveRescueCase(rescueCase);
   }
 
+  // Realtime: search the web for real US pharmacies that may carry the chosen
+  // alternative, so the nearby pharmacy quotes reflect actual providers.
+  const liveQuotes = await findAlternativeStockLive(
+    safeCandidates[0],
+    patient.region,
+  );
+
   rescueCase = {
     ...rescueCase,
     substitutionCandidates: safeCandidates,
     selectedCandidateId: safeCandidates[0].id,
+    pharmacyQuotes: liveQuotes.length ? liveQuotes : rescueCase.pharmacyQuotes,
   };
+  const stocked = liveQuotes.find((q) => q.inStock);
   rescueCase = withTimeline(
     rescueCase,
     "awaiting_prescriber_authorization",
-    `${safeCandidates[0].medication} is ready for prescriber authorization as a candidate alternative.`,
+    stocked
+      ? `${safeCandidates[0].medication} is available at ${stocked.pharmacyName} and ready for prescriber authorization as a candidate alternative.`
+      : `${safeCandidates[0].medication} is ready for prescriber authorization as a candidate alternative.`,
   );
 
   return await saveRescueCase(rescueCase);

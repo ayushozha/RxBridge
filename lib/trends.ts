@@ -1,4 +1,5 @@
 import type { MedTrend } from "@/lib/rescue-types";
+import { getPatient, type Medication } from "@/lib/patient-data";
 
 /**
  * Multi-series chart payload for a single informative "health overview" chart.
@@ -236,48 +237,85 @@ function metricAlias(metric: string): string {
   return metric;
 }
 
+// The 10 dates the overview spans, oldest to newest, ending today.
+const OVERVIEW_DATES = [
+  "2026-06-04",
+  "2026-06-05",
+  "2026-06-06",
+  "2026-06-07",
+  "2026-06-08",
+  "2026-06-09",
+  "2026-06-10",
+  "2026-06-11",
+  "2026-06-12",
+  "2026-06-13",
+];
+
+/** A safe series key for a medication, for example days_supply_semaglutide. */
+function supplyKey(med: Medication): string {
+  return `days_supply_${med.ingredient.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`;
+}
+
 /**
- * Per patient list of the days_supply_* series to fold into the recent health
- * overview chart, in display order. These are the daily, actionable supply
- * lines that answer "pull up my health data" and the shortage story.
+ * Synthesize a 10 day declining days-of-supply series ending at the
+ * medication's current daysSupplyRemaining, so every medication can be charted
+ * even without a hand authored fixture. Uses an authored fixture when present.
  */
-const OVERVIEW_SUPPLY_METRICS: Record<string, string[]> = {
-  ayush: ["days_supply_metformin", "days_supply_albuterol"],
-  "demo-marcus": [
-    "days_supply_semaglutide",
-    "days_supply_levothyroxine",
-    "days_supply_losartan",
-  ],
-};
+function seriesForMed(
+  patientId: string,
+  med: Medication,
+): { key: string; trend: MedTrend } {
+  const key = supplyKey(med);
+  const authored = TRENDS[patientId]?.[key];
+  if (authored) return { key: authored.metric, trend: authored };
+
+  const end = med.daysSupplyRemaining;
+  // A gentle decline of about one day per day, clamped at zero.
+  const points = OVERVIEW_DATES.map((date, i) => {
+    const fromEnd = OVERVIEW_DATES.length - 1 - i;
+    return { date, value: Math.max(0, end + fromEnd) };
+  });
+  return {
+    key,
+    trend: {
+      metric: key,
+      label: `${med.name}, days on hand`,
+      unit: "days",
+      points,
+      target: { min: 7, label: "Refill buffer" },
+    },
+  };
+}
 
 /**
  * Build one informative multi-series chart of the patient's recent daily days
- * of supply, one line per critical medication. This is what get_health_overview
- * returns so a single chart answers "pull up my health data from yesterday" or
- * "how am I doing" without long prose. All values are synthetic demo data.
+ * of supply, one line for EVERY medication the patient has. This is what
+ * get_health_overview returns so a single chart answers "pull up my health
+ * data" or "show all my medications" without long prose. Authored fixtures are
+ * used where present; the rest are synthesized from current supply. All values
+ * are synthetic demo data.
  */
 export function getHealthOverview(patientId: string): HealthOverview | null {
-  const patientTrends = TRENDS[patientId];
-  if (!patientTrends) return null;
+  const patient = getPatient(patientId);
+  if (!patient || patient.medications.length === 0) return null;
 
-  const metrics = OVERVIEW_SUPPLY_METRICS[patientId] ?? [];
-  const trends = metrics
-    .map((metric) => patientTrends[metric])
-    .filter((t): t is MedTrend => t != null);
-  if (trends.length === 0) return null;
+  const built = patient.medications.map((med) => seriesForMed(patientId, med));
 
-  const series: HealthOverviewSeries[] = trends.map((t) => ({
-    key: t.metric,
-    label: t.label,
-    unit: t.unit,
+  const series: HealthOverviewSeries[] = built.map(({ key, trend }) => ({
+    key,
+    label: trend.label,
+    unit: trend.unit,
   }));
 
   // Align every series onto the union of their dates, keyed by date.
-  const byDate = new Map<string, { date: string } & Record<string, number | string>>();
-  for (const trend of trends) {
+  const byDate = new Map<
+    string,
+    { date: string } & Record<string, number | string>
+  >();
+  for (const { key, trend } of built) {
     for (const point of trend.points) {
       const row = byDate.get(point.date) ?? { date: point.date };
-      row[trend.metric] = point.value;
+      row[key] = point.value;
       byDate.set(point.date, row);
     }
   }
@@ -286,7 +324,7 @@ export function getHealthOverview(patientId: string): HealthOverview | null {
   );
 
   return {
-    label: "Your recent health data, days of medication on hand",
+    label: "Your medications, days on hand",
     unit: "days",
     points,
     series,

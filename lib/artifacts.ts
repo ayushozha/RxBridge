@@ -23,7 +23,8 @@ export type ArtifactType =
   | "substitution_compare"
   | "rescue_packet"
   | "action_buttons"
-  | "negotiation_call";
+  | "negotiation_call"
+  | "rescue_report";
 
 export interface BaseArtifact {
   id: string;
@@ -120,6 +121,38 @@ export interface NegotiationCallArtifact extends BaseArtifact {
   outcome: "reserved" | "no_deal";
 }
 
+/** A single line of the negotiation transcript, for the report. */
+export interface ReportTranscriptLine {
+  speaker: "agent" | "pharmacy";
+  text: string;
+  price?: number;
+}
+
+/** The post call rescue report: the important facts, the negotiation, and the
+ * price movement, ready to export to PDF or email to a clinician or pharmacy. */
+export interface RescueReportArtifact extends BaseArtifact {
+  type: "rescue_report";
+  caseId: string;
+  generatedAt: string;
+  patientName: string;
+  region: string;
+  originalMedication: string;
+  approvedAlternative: string | null;
+  prescriberName: string | null;
+  pharmacyName: string | null;
+  agreedPrice: number | null;
+  startingPrice: number | null;
+  savings: number | null;
+  outcome: string;
+  /** Ordered workflow milestones with timestamps. */
+  timeline: Array<{ at: string; label: string }>;
+  /** The negotiation transcript with prices. */
+  transcript: ReportTranscriptLine[];
+  /** Price points across the call, for the mini chart. */
+  priceTrail: Array<{ step: string; price: number }>;
+  sources: Array<{ url: string; title: string }>;
+}
+
 export type Artifact =
   | ChartArtifact
   | MedicationListArtifact
@@ -127,4 +160,5 @@ export type Artifact =
   | SubstitutionCompareArtifact
   | RescuePacketArtifact
   | ActionButtonsArtifact
-  | NegotiationCallArtifact;
+  | NegotiationCallArtifact
+  | RescueReportArtifact;

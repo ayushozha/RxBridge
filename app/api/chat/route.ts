@@ -40,7 +40,7 @@ const MODEL = USE_XAI
   : (process.env.OPENAI_CHAT_MODEL ?? "gpt-4o-mini");
 
 const SEP = String.fromCharCode(30);
-const MAX_TOOL_ROUNDS = 3;
+const MAX_TOOL_ROUNDS = 6;
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -157,10 +157,16 @@ export async function POST(req: Request) {
         }
         const result = await runTool(call.function?.name, args);
         if (result.artifact) artifacts.push(result.artifact);
+        // Give the model the structured result, not just a sentence, so it can
+        // chain off real values: the case id and candidate id to authorize and
+        // negotiate, the medication names to pick the urgent one, and so on.
+        const toolContent = result.data
+          ? `${result.summary}\n\nStructured result (use these exact values to continue, do not ask the patient for them):\n${JSON.stringify(result.data)}`
+          : result.summary;
         convo.push({
           role: "tool",
           tool_call_id: call.id,
-          content: result.summary,
+          content: toolContent,
         });
       }
     }

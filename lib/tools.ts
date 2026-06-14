@@ -21,7 +21,8 @@ export type ToolName =
   | "authorize_candidate"
   | "start_negotiation"
   | "confirm_pharmacy_fill"
-  | "get_rescue_packet";
+  | "get_rescue_packet"
+  | "generate_report";
 
 export interface ToolDefinition {
   name: ToolName;
@@ -135,6 +136,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Return the final patient rescue packet once the workflow is complete.",
     artifact: "rescue_packet",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { caseId: STRING },
+      required: ["caseId"],
+    },
+  },
+  {
+    name: "generate_report",
+    description:
+      "Generate the final rescue report after the call: the key facts, the negotiation transcript, the price movement, and the outcome, ready to export to PDF or email to the doctor or pharmacy. Use when the patient asks for a report, summary, or something to send to their doctor or pharmacy.",
+    artifact: "rescue_report",
     parameters: {
       type: "object",
       additionalProperties: false,

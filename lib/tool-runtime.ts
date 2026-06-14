@@ -40,6 +40,8 @@ export interface RunToolResult {
   summary: string;
   /** The artifact to render inline, or null if none. */
   artifact: Artifact | null;
+  /** The structured tool data, so the model can chain off it (case IDs etc). */
+  data: unknown;
 }
 
 type HandlerMap = Partial<
@@ -141,6 +143,12 @@ function toArtifact(name: ToolName, data: unknown): Artifact | null {
         ? { ...art, id: artifactId("nego") }
         : null;
     }
+    case "rescue_report": {
+      const report = d.report as Artifact | undefined;
+      return report && report.type === "rescue_report"
+        ? { ...report, id: artifactId("report") }
+        : null;
+    }
     default:
       return null;
   }
@@ -152,7 +160,7 @@ export async function runTool(
 ): Promise<RunToolResult> {
   const def = getToolDefinition(name);
   if (!def) {
-    return { summary: `Unknown tool ${name}.`, artifact: null };
+    return { summary: `Unknown tool ${name}.`, artifact: null, data: null };
   }
 
   const handlers = await loadHandlers();
@@ -161,6 +169,7 @@ export async function runTool(
     return {
       summary: `The ${def.name} capability is not connected yet, so I cannot show that data.`,
       artifact: null,
+      data: null,
     };
   }
 
@@ -169,12 +178,14 @@ export async function runTool(
     return {
       summary: result.summary,
       artifact: toArtifact(def.name, result.data),
+      data: result.data,
     };
   } catch (err) {
     console.error(`Tool ${def.name} failed:`, err);
     return {
       summary: `I could not complete ${def.name} just now.`,
       artifact: null,
+      data: null,
     };
   }
 }

@@ -8,6 +8,7 @@ import SubstitutionCompareView from "./SubstitutionCompareView";
 import RescuePacketView from "./RescuePacketView";
 import ActionButtonsView from "./ActionButtonsView";
 import NegotiationCallView from "./NegotiationCallView";
+import RescueReportView from "./RescueReportView";
 
 // The chart pulls in Recharts, so load it only on the client, after paint.
 const ChartArtifactView = dynamic(() => import("./ChartArtifactView"), {
@@ -65,6 +66,8 @@ function ArtifactBody({
       return <ActionButtonsView artifact={artifact} onResult={onAction} />;
     case "negotiation_call":
       return <NegotiationCallView artifact={artifact} />;
+    case "rescue_report":
+      return <RescueReportView artifact={artifact} />;
     default:
       return null;
   }
