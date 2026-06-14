@@ -69,7 +69,7 @@ export const toolHandlers: ToolHandlerMap = {
 
   get_rescue_case: async (args) => {
     const caseId = requiredString(args.caseId, "caseId");
-    const rescueCase = getRescueCase(caseId);
+    const rescueCase = await getRescueCase(caseId);
     if (!rescueCase) throw new Error(`Case ${caseId} was not found.`);
     return {
       summary: latestSummary(rescueCase.timeline),
@@ -80,7 +80,7 @@ export const toolHandlers: ToolHandlerMap = {
   authorize_candidate: async (args) => {
     const caseId = requiredString(args.caseId, "caseId");
     const candidateId = requiredString(args.candidateId, "candidateId");
-    const rescueCase = authorizeCandidate(caseId, candidateId);
+    const rescueCase = await authorizeCandidate(caseId, candidateId);
     if (!rescueCase) throw new Error("Could not authorize that candidate.");
     return {
       summary: latestSummary(rescueCase.timeline),
@@ -111,7 +111,7 @@ export const toolHandlers: ToolHandlerMap = {
 
   confirm_pharmacy_fill: async (args) => {
     const caseId = requiredString(args.caseId, "caseId");
-    const rescueCase = confirmPharmacyFill(caseId);
+    const rescueCase = await confirmPharmacyFill(caseId);
     if (!rescueCase) {
       throw new Error("Could not confirm pharmacy fill for that case.");
     }
@@ -123,7 +123,7 @@ export const toolHandlers: ToolHandlerMap = {
 
   get_rescue_packet: async (args) => {
     const caseId = requiredString(args.caseId, "caseId");
-    const rescueCase = getRescueCase(caseId);
+    const rescueCase = await getRescueCase(caseId);
     if (!rescueCase) throw new Error(`Case ${caseId} was not found.`);
     const patient = requiredPatient(rescueCase.patientId);
     const packet = buildRescuePacket(rescueCase, patient);

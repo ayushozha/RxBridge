@@ -11,6 +11,7 @@ import type { NegotiationTurn } from "@/lib/artifacts";
 import type { RescueCase } from "@/lib/rescue-types";
 import { getRescueCase } from "@/lib/case-store";
 import { speakAgent, speakPharmacy } from "@/lib/services/voice-tts";
+import { grokNegotiationScript } from "@/lib/xai";
 
 const AGENT_LABEL = "GPT Realtime 2";
 const PHARMACY_LABEL = "Grok Voice";
@@ -99,12 +100,19 @@ function pickMedication(rescueCase: RescueCase): string {
 export async function runNegotiation(
   caseId: string,
 ): Promise<NegotiationResult | null> {
-  const rescueCase = getRescueCase(caseId);
+  const rescueCase = await getRescueCase(caseId);
   if (!rescueCase) return null;
 
   const medication = pickMedication(rescueCase);
   const pharmacyName = pickPharmacy(rescueCase);
-  const { lines, agreedPrice } = buildScript(medication, pharmacyName);
+
+  // Generate a natural, human sounding negotiation with Grok. Fall back to the
+  // fixed script if the model is unavailable, so the call always plays.
+  const generated = await grokNegotiationScript({ medication, pharmacyName });
+  const { lines, agreedPrice } =
+    generated && generated.lines.length > 0
+      ? generated
+      : buildScript(medication, pharmacyName);
 
   // Generate the two voices in parallel per line. Audio may be null, in which
   // case the widget speaks the line with the browser voice instead.

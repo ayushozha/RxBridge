@@ -181,3 +181,164 @@ function hostnameOf(url: string): string {
     return url;
   }
 }
+
+const XAI_CHAT_ENDPOINT = "https://api.x.ai/v1/chat/completions";
+const DEFAULT_FAST_MODEL = "grok-4.20-0309-non-reasoning";
+
+export interface NegotiationScriptLine {
+  speaker: "agent" | "pharmacy";
+  text: string;
+  price?: number;
+}
+
+/**
+ * Generates a natural, human sounding pharmacy negotiation in realtime using a
+ * fast Grok model. Returns an ordered list of turns where the RxBridge agent
+ * and the pharmacist haggle over price and settle, or null if the model is
+ * unavailable so the caller can fall back to a fixed script.
+ */
+export async function grokNegotiationScript(args: {
+  medication: string;
+  pharmacyName: string;
+  signal?: AbortSignal;
+}): Promise<{ lines: NegotiationScriptLine[]; agreedPrice: number } | null> {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) return null;
+  const model = process.env.XAI_FAST_MODEL || DEFAULT_FAST_MODEL;
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let signal = args.signal;
+  if (!signal) {
+    const controller = new AbortController();
+    timeout = setTimeout(() => controller.abort(), 20_000);
+    signal = controller.signal;
+  }
+
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      lines: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            speaker: { type: "string", enum: ["agent", "pharmacy"] },
+            text: { type: "string" },
+            price: { type: ["number", "null"] },
+          },
+          required: ["speaker", "text", "price"],
+        },
+      },
+      agreedPrice: { type: "number" },
+    },
+    required: ["lines", "agreedPrice"],
+  };
+
+  try {
+    const res = await fetch(XAI_CHAT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal,
+      body: JSON.stringify({
+        model,
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "negotiation", schema, strict: true },
+        },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You write a short, natural phone negotiation between two people: a patient care agent from RxBridge and a pharmacist. They talk like real humans, with warmth, small acknowledgements, and back and forth haggling over the cash price of a medication that is in shortage. The agent is polite but advocates for a fair out of pocket price. The pharmacist quotes a starting price, the agent pushes back once or twice, and they settle on a middle price and reserve it for same day pickup. Keep it 6 to 8 turns, alternating speakers, starting with the agent. Put the dollar amount in the price field whenever a price is mentioned, null otherwise. Stay realistic and friendly. Never use the em dash or en dash characters.",
+          },
+          {
+            role: "user",
+            content: `Medication: ${args.medication}. Pharmacy: ${args.pharmacyName}. Write the negotiation. End with the pharmacist confirming the reservation at the agreed price.`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed.lines) || parsed.lines.length === 0) return null;
+    const lines: NegotiationScriptLine[] = parsed.lines.map(
+      (l: { speaker: string; text: string; price: number | null }) => ({
+        speaker: l.speaker === "pharmacy" ? "pharmacy" : "agent",
+        text: String(l.text),
+        price: typeof l.price === "number" ? l.price : undefined,
+      }),
+    );
+    return { lines, agreedPrice: Number(parsed.agreedPrice) || 0 };
+  } catch {
+    return null;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+/**
+ * Explains a chart in realtime using a fast, low latency Grok model.
+ *
+ * Given a plain text description of the chart data and the patient's question,
+ * returns a short, friendly explanation suitable for both reading and speaking.
+ * Returns null if the key is missing or the call fails, so the caller can fall
+ * back to a deterministic explanation.
+ */
+export async function grokExplainChart(args: {
+  question: string;
+  chartSummary: string;
+  signal?: AbortSignal;
+}): Promise<string | null> {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) return null;
+  const model = process.env.XAI_FAST_MODEL || DEFAULT_FAST_MODEL;
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let signal = args.signal;
+  if (!signal) {
+    const controller = new AbortController();
+    timeout = setTimeout(() => controller.abort(), 20_000);
+    signal = controller.signal;
+  }
+
+  try {
+    const res = await fetch(XAI_CHAT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are RxBridge, a calm healthcare assistant explaining a chart to a patient. Use the chart data provided. Be warm, plain, and brief, a few short sentences that work read or spoken. Explain what the lines mean and what is worth watching, especially any medication running low. Never tell the patient to change a dose, defer dose and treatment changes to their clinician or pharmacist. Never use the em dash or en dash characters.",
+          },
+          {
+            role: "user",
+            content: `Patient question: ${args.question}\n\nChart data:\n${args.chartSummary}`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const text: string | undefined = data?.choices?.[0]?.message?.content;
+    return text?.trim() || null;
+  } catch {
+    return null;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}

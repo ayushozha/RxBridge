@@ -9,11 +9,16 @@ import { getPatient, PRIMARY_PATIENT_ID } from "@/lib/patient-data";
 
 type Mode = "text" | "voice";
 
-const PATIENT = getPatient(PRIMARY_PATIENT_ID);
-const FIRST_NAME = PATIENT?.displayName.split(" ")[0] ?? "there";
+function firstNameOf(patientId: string): string {
+  return getPatient(patientId)?.displayName.split(" ")[0] ?? "there";
+}
 
 export default function RxBridgePage() {
   const [mode, setMode] = useState<Mode>("text");
+  // The selected patient is owned here so the welcome message and the right
+  // rail stay in sync when you switch between Ayush and Marcus.
+  const [patientId, setPatientId] = useState(PRIMARY_PATIENT_ID);
+  const firstName = firstNameOf(patientId);
 
   const voice = useRealtime();
   const chat = useTextChat();
@@ -46,7 +51,7 @@ export default function RxBridgePage() {
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || chat.sending) return;
-    chat.send(input);
+    chat.send(input, patientId);
     setInput("");
   }
 
@@ -54,7 +59,7 @@ export default function RxBridgePage() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (input.trim() && !chat.sending) {
-        chat.send(input);
+        chat.send(input, patientId);
         setInput("");
       }
     }
@@ -104,7 +109,7 @@ export default function RxBridgePage() {
         </aside>
 
         {/* Center: chat + voice in one interface */}
-        <main className="flex min-w-0 flex-col">
+        <main className="flex h-full min-h-0 min-w-0 flex-col">
           {/* Mode switch */}
           <div className="flex items-center justify-center gap-1 border-b border-slate-200 p-2 dark:border-slate-800">
             <div className="inline-flex rounded-full bg-slate-100 p-1 dark:bg-slate-800">
@@ -131,15 +136,15 @@ export default function RxBridgePage() {
             </div>
           </div>
 
-          {/* Conversation */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-5">
+          {/* Conversation (the only scrollable region) */}
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
             {conversation.length === 0 ? (
               <div className="mx-auto mt-8 max-w-md text-center">
                 <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-brand-50 text-2xl font-bold text-brand-600 dark:bg-brand-500/10 dark:text-brand-100">
                   Rx
                 </div>
                 <h2 className="text-lg font-semibold">
-                  Welcome {FIRST_NAME}, I am your personal healthcare assistant.
+                  Welcome {firstName}, I am your personal healthcare assistant.
                 </h2>
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                   Ask me anything about your health, your medications, or the
@@ -213,7 +218,7 @@ export default function RxBridgePage() {
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}
                   rows={1}
-                  placeholder={`Type a message, ${FIRST_NAME}…`}
+                  placeholder={`Type a message, ${firstName}…`}
                   className="max-h-40 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-slate-400"
                 />
                 <button
@@ -232,7 +237,7 @@ export default function RxBridgePage() {
                 userSpeaking={voice.userSpeaking}
                 muted={voice.muted}
                 statusLabel={voiceStatus}
-                onConnect={voice.connect}
+                onConnect={() => voice.connect(patientId)}
                 onDisconnect={voice.disconnect}
                 onToggleMute={voice.toggleMute}
               />
@@ -247,7 +252,10 @@ export default function RxBridgePage() {
 
         {/* Right: patient medical data + medicines + alerts */}
         <aside className="hidden flex-col overflow-y-auto border-l border-slate-200 p-3 dark:border-slate-800 md:flex">
-          <HealthAlerts />
+          <HealthAlerts
+            patientId={patientId}
+            onPatientChange={setPatientId}
+          />
         </aside>
       </div>
     </div>

@@ -33,7 +33,7 @@ export function useTextChat() {
   }, []);
 
   const send = useCallback(
-    async (raw: string) => {
+    async (raw: string, patientId?: string) => {
       const text = raw.trim();
       if (!text || sending) return;
       setError(null);
@@ -63,6 +63,7 @@ export function useTextChat() {
           signal: controller.signal,
           body: JSON.stringify({
             messages: history.map((m) => ({ role: m.speaker, content: m.text })),
+            patientId,
           }),
         });
         if (!res.ok || !res.body) {

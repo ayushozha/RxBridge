@@ -5,6 +5,7 @@ import { runTool } from "@/lib/tool-runtime";
 import type { Artifact } from "@/lib/artifacts";
 import { PRIMARY_PATIENT_ID, getPatient } from "@/lib/patient-data";
 import { getHealthOverview } from "@/lib/trends";
+import { grokExplainChart } from "@/lib/xai";
 
 /**
  * Streaming text chat with the patient assistant, with tool calls.
@@ -23,8 +24,21 @@ import { getHealthOverview } from "@/lib/trends";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MODEL = process.env.OPENAI_CHAT_MODEL ?? "gpt-5.5";
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+// The text chat uses xAI Grok by default, which has a very fast non reasoning
+// model, so replies feel instant. Set CHAT_PROVIDER=openai to use OpenAI.
+const PROVIDER = process.env.CHAT_PROVIDER ?? "xai";
+const USE_XAI = PROVIDER === "xai";
+
+const CHAT_URL = USE_XAI
+  ? "https://api.x.ai/v1/chat/completions"
+  : "https://api.openai.com/v1/chat/completions";
+const CHAT_KEY = USE_XAI
+  ? process.env.XAI_API_KEY
+  : process.env.OPENAI_API_KEY;
+const MODEL = USE_XAI
+  ? (process.env.XAI_FAST_MODEL ?? "grok-4.20-0309-non-reasoning")
+  : (process.env.OPENAI_CHAT_MODEL ?? "gpt-4o-mini");
+
 const SEP = String.fromCharCode(30);
 const MAX_TOOL_ROUNDS = 3;
 
@@ -37,7 +51,7 @@ type ApiMessage = Record<string, unknown>;
 
 function authHeaders() {
   return {
-    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    Authorization: `Bearer ${CHAT_KEY}`,
     "Content-Type": "application/json",
   };
 }
@@ -46,22 +60,38 @@ export async function POST(req: Request) {
   const blocked = guardRequest(req, Date.now(), { limit: 30, windowMs: 60_000 });
   if (blocked) return blocked;
 
-  if (!process.env.OPENAI_API_KEY) {
-    return Response.json({ error: "OPENAI_API_KEY is not set." }, { status: 500 });
+  if (!CHAT_KEY) {
+    return Response.json(
+      { error: `${USE_XAI ? "XAI_API_KEY" : "OPENAI_API_KEY"} is not set.` },
+      { status: 500 },
+    );
   }
 
   let messages: ChatMessage[];
+  let patientId = PRIMARY_PATIENT_ID;
   try {
     const body = await req.json();
     messages = body.messages;
     if (!Array.isArray(messages)) throw new Error("messages must be an array");
+    // Use the patient the client has selected, if valid.
+    if (typeof body.patientId === "string" && getPatient(body.patientId)) {
+      patientId = body.patientId;
+    }
   } catch {
     return Response.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const directReply = directChartExplanation(messages, PRIMARY_PATIENT_ID);
-  if (directReply) {
-    return new Response(directReply, {
+  // Realtime chart explanation: when the patient asks to understand a chart,
+  // explain it live with a fast Grok model using the real chart data. Falls
+  // back to a deterministic explanation if the model is unavailable.
+  const chartContext = chartExplanationContext(messages, patientId);
+  if (chartContext) {
+    let reply = await grokExplainChart({
+      question: chartContext.question,
+      chartSummary: chartContext.summary,
+    });
+    if (!reply) reply = chartContext.fallback;
+    return new Response(reply, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store",
@@ -70,10 +100,12 @@ export async function POST(req: Request) {
   }
 
   // Tell the model who the current patient is, so tools that need a patientId
-  // can be called without asking. Data itself still comes only from tools.
-  const patient = getPatient(PRIMARY_PATIENT_ID);
+  // can be called without asking, and so it greets the right person. This
+  // overrides any name baked into the base system prompt.
+  const patient = getPatient(patientId);
+  const firstName = patient?.displayName.split(" ")[0] ?? "there";
   const context = patient
-    ? `Current patient: ${patient.displayName} (patientId "${patient.id}"), region ${patient.region}.`
+    ? `The current patient is ${patient.displayName} (patientId "${patient.id}"), region ${patient.region}. Always address this patient as ${firstName}. Ignore any other patient name mentioned earlier in your instructions; ${firstName} is who you are speaking with now.`
     : "";
 
   const convo: ApiMessage[] = [
@@ -87,7 +119,7 @@ export async function POST(req: Request) {
   // Tool-call rounds, no streaming, until the model stops requesting tools.
   try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-      const res = await fetch(OPENAI_URL, {
+      const res = await fetch(CHAT_URL, {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({
@@ -143,7 +175,7 @@ export async function POST(req: Request) {
   // Final streamed reply. The model now has any tool results in context.
   let upstream: Response;
   try {
-    upstream = await fetch(OPENAI_URL, {
+    upstream = await fetch(CHAT_URL, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ model: MODEL, stream: true, messages: convo }),
@@ -221,14 +253,25 @@ export async function POST(req: Request) {
   });
 }
 
-function directChartExplanation(
+interface ChartExplanationContext {
+  question: string;
+  summary: string;
+  fallback: string;
+}
+
+/**
+ * If the latest user message asks to understand a chart, returns the question,
+ * a plain text summary of the real chart data for the fast model, and a
+ * deterministic fallback explanation. Returns null otherwise.
+ */
+function chartExplanationContext(
   messages: ChatMessage[],
   patientId: string,
-): string | null {
-  const latest = [...messages]
+): ChartExplanationContext | null {
+  const latestRaw = [...messages]
     .reverse()
-    .find((message) => message.role === "user")
-    ?.content.toLowerCase();
+    .find((message) => message.role === "user")?.content;
+  const latest = latestRaw?.toLowerCase();
   if (!latest) return null;
 
   const asksAboutChart =
@@ -242,15 +285,26 @@ function directChartExplanation(
   const overview = getHealthOverview(patientId);
   if (!overview || overview.points.length === 0) return null;
 
-  const finalPoint = overview.points[overview.points.length - 1];
+  // A compact text rendering of the series so the fast model has the real data.
+  const first = overview.points[0];
+  const last = overview.points[overview.points.length - 1];
+  const lines = overview.series.map((series) => {
+    const start = first[series.key];
+    const end = last[series.key];
+    return `${series.label}: ${start} to ${end} ${series.unit ?? overview.unit} over ${overview.points.length} days`;
+  });
+  const summary = `Chart: ${overview.label}. Each line is a medication's days of supply on hand, by date.\n${lines.join("\n")}`;
+
   const finalValues = overview.series
     .map((series) => {
-      const value = finalPoint[series.key];
+      const value = last[series.key];
       if (typeof value !== "number") return null;
       return `${series.label} ends at ${value} ${series.unit ?? overview.unit}`;
     })
     .filter((line): line is string => line != null)
     .join("; ");
 
-  return `That chart is showing days of medication on hand over time. Each line is one medication, and the lower the line gets, the closer that medication is to needing refill action.\n\nOn the latest date, ${finalValues}.\n\nThe main thing to watch is the slope. A steady downward line is expected as doses are used. A line near 7 days means it is time to plan the refill early. A line near 3 days means the refill should be handled today, especially for rescue or critical medications.\n\nDo not change doses based on the chart. Use it to decide what to ask your pharmacist or clinician next.`;
+  const fallback = `That chart is showing days of medication on hand over time. Each line is one medication, and the lower the line gets, the closer that medication is to needing refill action.\n\nOn the latest date, ${finalValues}.\n\nThe main thing to watch is the slope. A line near 7 days means it is time to plan the refill early. A line near 3 days means the refill should be handled today, especially for rescue or critical medications.\n\nDo not change doses based on the chart. Use it to decide what to ask your pharmacist or clinician next.`;
+
+  return { question: latestRaw ?? "Explain my chart.", summary, fallback };
 }

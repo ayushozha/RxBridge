@@ -12,7 +12,7 @@ export async function GET(req: Request) {
     return Response.json({ error: "caseId is required." }, { status: 400 });
   }
 
-  const rescueCase = getRescueCase(caseId);
+  const rescueCase = await getRescueCase(caseId);
   if (!rescueCase) {
     return Response.json({ error: "Case not found." }, { status: 404 });
   }

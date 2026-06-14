@@ -16,11 +16,13 @@ export const runtime = "nodejs";
 const MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-2";
 
 /** System instructions plus who the current patient is, so the assistant can
- * call tools that need a patientId without asking. */
-function instructions(): string {
-  const patient = getPatient(PRIMARY_PATIENT_ID);
+ * call tools that need a patientId without asking, and greets the right person.
+ * Overrides any name baked into the base prompt. */
+function instructions(patientId: string): string {
+  const patient = getPatient(patientId);
   if (!patient) return SYSTEM_PROMPT;
-  return `${SYSTEM_PROMPT}\n\nCurrent patient: ${patient.displayName} (patientId "${patient.id}"), region ${patient.region}.`;
+  const firstName = patient.displayName.split(" ")[0];
+  return `${SYSTEM_PROMPT}\n\nThe current patient is ${patient.displayName} (patientId "${patient.id}"), region ${patient.region}. Always address this patient as ${firstName}. Ignore any other patient name mentioned earlier in your instructions; ${firstName} is who you are speaking with now.`;
 }
 const VOICE = process.env.OPENAI_REALTIME_VOICE ?? "marin";
 
@@ -38,6 +40,17 @@ export async function POST(req: Request) {
     );
   }
 
+  // Which patient the client has selected, so voice greets the right person.
+  let patientId = PRIMARY_PATIENT_ID;
+  try {
+    const body = await req.json();
+    if (typeof body?.patientId === "string" && getPatient(body.patientId)) {
+      patientId = body.patientId;
+    }
+  } catch {
+    // no body is fine, fall back to the primary patient
+  }
+
   try {
     const res = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
       method: "POST",
@@ -49,7 +62,7 @@ export async function POST(req: Request) {
         session: {
           type: "realtime",
           model: MODEL,
-          instructions: instructions(),
+          instructions: instructions(patientId),
           tools: REALTIME_TOOLS,
           tool_choice: "auto",
           audio: {

@@ -136,8 +136,20 @@ const SHORTAGE_STATUS_LABEL: Record<MedicationShortage["status"], string> = {
   resolved: "Resolved",
 };
 
-export function HealthAlerts() {
-  const [patientId, setPatientId] = useState(PATIENTS[0].id);
+export function HealthAlerts({
+  patientId: controlledPatientId,
+  onPatientChange,
+}: {
+  /** When provided, the selected patient is controlled by the parent. */
+  patientId?: string;
+  onPatientChange?: (id: string) => void;
+} = {}) {
+  const [localPatientId, setLocalPatientId] = useState(PATIENTS[0].id);
+  const patientId = controlledPatientId ?? localPatientId;
+  const setPatientId = (id: string) => {
+    setLocalPatientId(id);
+    onPatientChange?.(id);
+  };
   const [data, setData] = useState<AlertsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

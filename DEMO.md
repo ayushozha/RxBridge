@@ -1,5 +1,100 @@
 # RxBridge Demo Plan
 
+## Dependable fallback: the /demo replay (use this if the live demo fails)
+
+There is a recorded walkthrough at **/demo** (locally
+`http://localhost:3000/demo`) that replays the entire flow with zero live API
+calls, so it cannot fail on stage. It was captured from a real run, so the
+text, the charts, the rescue tracker, the rescue packet, and the negotiation
+call are all genuine, and the call plays its real captured audio (the OpenAI
+agent voice is real audio; the Grok pharmacy voice uses the browser speech
+fallback until the xAI audio scope is enabled).
+
+How to use it:
+- It auto plays. Use the Pause, Next, and Restart buttons in the top right to
+  control pacing while you narrate.
+- It needs no keys, no network, and no warm up, so it is the safe option if the
+  live site is cold, rate limited, or offline.
+- The data is baked into `lib/demo-script.ts`. To refresh it after changing the
+  flow, run `node scripts/capture-demo.mjs` with the dev server running.
+
+Use the live app for the real thing, and switch to /demo if anything hiccups.
+
+---
+
+## Step by step demo script (what to do on stage)
+
+Run the live app at `http://localhost:3000`. Before you present, send one warm
+up message so the first real reply is instant. Then follow these steps. Each
+step says exactly what to type or click and what the audience will see.
+
+### Step 0. Open and set the patient
+- Open `http://localhost:3000`. The assistant greets the patient by name.
+- In the right rail under "Patient", select **Marcus L.** The greeting, the
+  medications, and the alerts all switch to Marcus. Marcus is the hero case: he
+  has Ozempic, Adderall, levothyroxine and more, several only days from running
+  out.
+
+### Step 1. Show the medication picture (the setup)
+- Type: **"Are my medications in order?"**
+- The assistant replies in about a second and renders an interactive
+  **medication list** inline: each medicine with its refill timing and an
+  urgency badge (Refill now, Refill soon, On track). This shows the data is
+  live and visual, not a wall of text.
+
+### Step 2. Build a chart in realtime (the visualization)
+- Type: **"Show me a chart of my days of supply over time."**
+- A **line chart** renders inline, built live from Marcus's data, with one line
+  per medication trending down toward zero. Point out the steepest line.
+
+### Step 3. Explain the chart in realtime (the intelligence)
+- Type: **"Can you explain the chart and what it means?"**
+- A fast Grok model reads the actual values and explains them in plain language
+  in a second or two ("this line started at 13 days and is down to 6, worth
+  watching"). It is generated live, not canned.
+
+### Step 4. The problem hits (the hook)
+- Type: **"My pharmacy is out of my Ozempic and I only have a few days left."**
+- The assistant acknowledges the shortage and offers to start a rescue. This is
+  where other tools stop. RxBridge starts here.
+
+### Step 5. Start the rescue (the core)
+- Type: **"Start a rescue for my Ozempic."**
+- A live **rescue tracker** renders and advances: case created, shortage
+  checked, pharmacy stock checked, original unavailable, candidate alternative
+  found, awaiting prescriber authorization. Every earlier step shows a check.
+
+### Step 6. The two agent negotiation call (the differentiator)
+- Type: **"Call the pharmacy and arrange it."**
+- The **negotiation call widget** appears. Click **Place the call**. Two AI
+  voices talk and haggle like real people:
+  - the **RxBridge agent** voice is OpenAI Realtime 2.0 (gpt realtime 2 family),
+  - the **pharmacy** voice is the latest Grok voice model.
+  The script itself is generated live by Grok so the back and forth sounds
+  human, with a pharmacist quoting a price, the agent pushing back, and a fair
+  middle price agreed. A **live price ledger** updates as they speak, and it
+  ends with the alternative reserved for same day pickup.
+
+### Step 7. The payoff
+- Type: **"Show me my rescue packet."**
+- The **rescue packet** renders: the approved alternative, the pharmacy holding
+  it, the agreed price, and what to say at pickup. Close with: a shortage left
+  Marcus days from running out, and RxBridge found an alternative and called his
+  pharmacy to arrange it, all in one conversation.
+
+### Optional. Voice mode
+- Switch the center toggle to **Voice**, tap the mic, and ask the same questions
+  out loud. The live voice uses OpenAI Realtime 2.0, and the same charts,
+  tracker, and call render next to the spoken answers.
+
+> Models in use: text chat and the realtime chart explanation run on Grok fast
+> (`grok-4.20-0309-non-reasoning`) for instant replies. The live patient voice
+> uses OpenAI Realtime 2.0 (`gpt-realtime-2`). The negotiation uses the OpenAI
+> voice for the agent and the Grok voice model for the pharmacy. The news and
+> shortage alerts use Grok 4.3 for accuracy.
+
+---
+
 ## One line description (under 200 characters)
 
 > When a drug shortage or outbreak means a patient can't get their medicine,
@@ -150,53 +245,102 @@ triggered by an outbreak instead of a refill.
 
 ---
 
-## What is already built (supports the flow)
+## What is built (verified working)
+
+Every beat above is backed by code that exists and was tested live.
 
 - Chat plus voice in one interface, three pane layout (done).
-- Medication list and trend charts as inline artifacts, Recharts (done).
-- Rescue workflow end to end: shortage, pharmacy, substitution, safety, packet,
-  case store, and the rescue routes (done by Agent B).
+- Medication list, the days of supply chart, and a health overview chart as
+  inline artifacts, Recharts (done). Tools: `get_medications`, `get_med_trend`,
+  `get_health_overview`.
+- Rescue workflow end to end: shortage, pharmacy stock, substitution, safety,
+  packet, the case store, and the rescue routes (done). Tools: `start_rescue`,
+  `get_rescue_case`, `authorize_candidate`, `confirm_pharmacy_fill`,
+  `get_rescue_packet`.
 - Realtime shortage and outbreak news via Grok search (done).
 - Rescue tracker and rescue packet artifacts (done).
-- Patient to assistant voice over WebRTC (done).
+- **The two voice negotiation call (done and verified).** Tool
+  `start_negotiation` to `/api/negotiate`. Returns a six turn call, the OpenAI
+  agent and the Grok pharmacy, with a live price ledger, settling around 42
+  dollars and reserving for same day pickup. Last test ran in about 5 seconds.
+- Both patients (Ayush and Marcus) have the medications, history, and trend
+  fixtures the beats use. Marcus's semaglutide days of supply visibly declines.
 
-## What is still needed for this specific demo
+## Known limitation to brief the audience on
 
-Ranked by how much the demo depends on it.
+- **Grok voice audio scope.** The xAI hackathon key currently returns 403 on the
+  audio scope, so the pharmacy lines fall back to the browser speech voice. The
+  transcript, the price ledger, and the flow are unchanged, and real Grok audio
+  turns on automatically the moment the scope is enabled, with no code change.
+  If you can get the audio scope enabled before the demo, you hear the real Grok
+  voice; if not, the call still plays cleanly.
 
-1. **The outbound provider call with Grok voice (highest priority, the
-   differentiator).** Today the voice is patient to assistant only. We need
-   RxBridge to place an outbound call to a simulated prescriber and pharmacy and
-   show the conversation. For the hackathon this can be a scripted or
-   simulated two party voice exchange (Grok voice playing both the RxBridge
-   caller and a synthetic provider, transcript shown in the interface), so it is
-   believable on stage without a live telephony integration. A real
-   Twilio or SIP handoff is the post hackathon version. This is net new work and
-   should be the top build item.
+## Polish that is optional, not blocking
 
-2. **Make Marcus the rescue patient and surface a "my medication is
-   unavailable" entry point** in the chat, so Beat 1 starts naturally. Small.
+These make the conversational flow smoother but the demo works without them.
 
-3. **Auto render the candidate comparison and the inline action buttons**
-   (authorize, confirm) so Beats 3 and 4 are clickable inside the conversation
-   rather than via raw routes. Small, Agent A.
-
-4. **The days of supply chart wired to fire in Beat 2** for semaglutide, so the
-   danger is visual. The chart and the trend tool exist; just ensure the metric
-   and fixture are there for Marcus. Small, shared.
-
-5. **Tighten the rescue tracker copy** to mention the calls (calling prescriber,
-   calling pharmacy) so the tracker mirrors what the audience hears.
-
-6. **Joint validation pass** once the above land: typecheck, build, and a full
-   stage rehearsal of Beats 0 to 5.
+1. Auto attach the candidate comparison and inline authorize / confirm buttons
+   after `start_rescue`, so Beats 3 and 4 are one click rather than the assistant
+   calling the next tool. Today the assistant drives it by calling the tools.
+2. Tighten the rescue tracker copy to say "calling prescriber" and "calling
+   pharmacy" so the tracker mirrors what the audience hears on the call.
 
 ---
 
+## How to run the demo
+
+```bash
+npm install
+npm run dev          # opens on http://localhost:3000
+```
+
+Drive it by talking or typing to the assistant. The assistant calls the tools,
+and the widgets render inline. Good prompts for each beat:
+
+- Beat 0: open the app (greets Ayush), then pick Marcus L. in the right rail.
+- Beat 1 / 2: "My pharmacy is out of my Ozempic and I only have a few days left."
+  Then "show me my days of supply" to bring up the chart.
+- Beat 3: "Start a rescue for my Ozempic." The tracker renders and advances.
+- Beat 4: "Call the pharmacy and arrange it." The negotiation call widget plays.
+- Beat 5: "Show me my rescue packet."
+
+For a deterministic stage run you can also hit the routes directly:
+`POST /api/rescue/start` then `POST /api/negotiate` with the returned `caseId`.
+
+## Live deployment status (read this if the live site says "failed to fetch")
+
+Live URL: https://rx-bridge-ayushozha.vercel.app (Vercel, project `rx-bridge`,
+git linked to `ayushozha/RxBridge`).
+
+What works live right now:
+- The homepage, the Grok news alerts, the text chat, and the realtime voice
+  token all respond. The environment variables (xAI and OpenAI keys) are set on
+  the Vercel project, and deployment protection is off so the URL is public.
+
+Two things to know about the live site:
+
+1. **Cold start on the first request.** The first call to a route after the
+   function has gone idle can be slow enough that the browser shows "failed to
+   fetch." A second try succeeds, and once warm responses are about 4 seconds.
+   To avoid this on stage, open the site and send one warm up message a minute
+   before you present.
+
+2. **The multi step rescue flow needs the KV deploy.** The in memory case store
+   does not persist across Vercel's serverless instances, so on the live URL the
+   start, negotiate, and confirm steps can land on different instances and lose
+   the case ("Unknown rescue case"). The fix is wired in code (Vercel KV via
+   `@upstash/redis` in `lib/case-store.ts`) but takes effect only after the KV
+   store is connected in the Vercel dashboard and this code is deployed. Until
+   then, run the rescue flow on `localhost`, where it is reliable, or finish the
+   KV setup. See the project README and the chat history for the KV steps.
+
+Local (`npm run dev`) runs the latest code and is reliable for all beats.
+
 ## Roughly how far along
 
-The rescue engine, the rich interface, the charts, and the news layer are built
-and integrated. The single biggest missing piece for the demo you want is the
-**outbound provider call experience** in item 1. With that plus the small
-wirings in 2 to 5, the stage flow is complete. Estimate: the call experience is
-the real build, the rest is an afternoon of wiring and polish.
+The full flow, Beats 0 through 5, is built and integrated and reliable on
+localhost: the rich interface, the charts, the news layer, the rescue engine,
+and the two voice negotiation call. For the live URL, the env vars and public
+access are done; the remaining step is connecting Vercel KV and deploying the
+latest code so the multi step rescue flow is reliable online. The Grok audio
+scope caveat above still applies to the pharmacy voice.

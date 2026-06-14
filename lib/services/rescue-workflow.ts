@@ -24,7 +24,7 @@ export async function startRescueWorkflow(
   );
   if (!medication) return null;
 
-  let rescueCase = createRescueCase({
+  let rescueCase = await createRescueCase({
     patientId: patient.id,
     prescription: {
       medication: medication.name,
@@ -81,7 +81,7 @@ export async function startRescueWorkflow(
       "failed_no_safe_option",
       "No candidate passed the synthetic safety screen.",
     );
-    return saveRescueCase(rescueCase);
+    return await saveRescueCase(rescueCase);
   }
 
   rescueCase = {
@@ -95,14 +95,14 @@ export async function startRescueWorkflow(
     `${safeCandidates[0].medication} is ready for prescriber authorization as a candidate alternative.`,
   );
 
-  return saveRescueCase(rescueCase);
+  return await saveRescueCase(rescueCase);
 }
 
-export function authorizeCandidate(
+export async function authorizeCandidate(
   caseId: string,
   candidateId: string,
-): RescueCase | null {
-  const rescueCase = getRescueCase(caseId);
+): Promise<RescueCase | null> {
+  const rescueCase = await getRescueCase(caseId);
   if (!rescueCase) return null;
 
   const candidate = rescueCase.substitutionCandidates.find(
@@ -125,11 +125,13 @@ export function authorizeCandidate(
     `${candidate.medication} was authorized by the prescriber.`,
   );
 
-  return saveRescueCase(updated);
+  return await saveRescueCase(updated);
 }
 
-export function confirmPharmacyFill(caseId: string): RescueCase | null {
-  const rescueCase = getRescueCase(caseId);
+export async function confirmPharmacyFill(
+  caseId: string,
+): Promise<RescueCase | null> {
+  const rescueCase = await getRescueCase(caseId);
   if (!rescueCase?.authorization?.approved || !rescueCase.selectedCandidateId) {
     return null;
   }
@@ -166,5 +168,5 @@ export function confirmPharmacyFill(caseId: string): RescueCase | null {
     );
   }
 
-  return saveRescueCase(updated);
+  return await saveRescueCase(updated);
 }

@@ -273,14 +273,18 @@ export function useRealtime() {
     }));
   }, []);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (patientId?: string) => {
     if (pcRef.current || connectingRef.current) return;
     connectingRef.current = true;
     setState({ ...INITIAL_STATE, status: "connecting" });
 
     try {
-      // 1. Get an ephemeral token from our server.
-      const tokenRes = await fetch("/api/realtime-session", { method: "POST" });
+      // 1. Get an ephemeral token from our server, scoped to the patient.
+      const tokenRes = await fetch("/api/realtime-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patientId }),
+      });
       const tokenData = await tokenRes.json();
       if (!tokenRes.ok || !tokenData.token) {
         throw new Error(tokenData.error ?? "Could not start a voice session.");
