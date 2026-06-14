@@ -1,0 +1,211 @@
+import { SYSTEM_PROMPT } from "@/lib/system-prompt";
+import { guardRequest } from "@/lib/request-guard";
+import { OPENAI_TOOLS } from "@/lib/tools";
+import { runTool } from "@/lib/tool-runtime";
+import type { Artifact } from "@/lib/artifacts";
+import { PRIMARY_PATIENT_ID, getPatient } from "@/lib/patient-data";
+
+/**
+ * Streaming text chat with the patient assistant, with tool calls.
+ *
+ * Flow:
+ *   1. Ask the model with the tool list. If it wants tools, run Agent B's
+ *      deterministic handlers, collect any artifacts, and feed the tool results
+ *      back to the model.
+ *   2. Stream the model's final text reply to the client.
+ *   3. After the text, append a record separator and a JSON line carrying the
+ *      artifacts, which the client renders inline.
+ *
+ * Voice mode uses the Realtime WebRTC connection. The OPENAI_API_KEY stays
+ * server side. The record separator is U+001E.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+const MODEL = process.env.OPENAI_CHAT_MODEL ?? "gpt-5.5";
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const SEP = String.fromCharCode(30);
+const MAX_TOOL_ROUNDS = 3;
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+type ApiMessage = Record<string, unknown>;
+
+function authHeaders() {
+  return {
+    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    "Content-Type": "application/json",
+  };
+}
+
+export async function POST(req: Request) {
+  const blocked = guardRequest(req, Date.now(), { limit: 30, windowMs: 60_000 });
+  if (blocked) return blocked;
+
+  if (!process.env.OPENAI_API_KEY) {
+    return Response.json({ error: "OPENAI_API_KEY is not set." }, { status: 500 });
+  }
+
+  let messages: ChatMessage[];
+  try {
+    const body = await req.json();
+    messages = body.messages;
+    if (!Array.isArray(messages)) throw new Error("messages must be an array");
+  } catch {
+    return Response.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
+  // Tell the model who the current patient is, so tools that need a patientId
+  // can be called without asking. Data itself still comes only from tools.
+  const patient = getPatient(PRIMARY_PATIENT_ID);
+  const context = patient
+    ? `Current patient: ${patient.displayName} (patientId "${patient.id}"), region ${patient.region}.`
+    : "";
+
+  const convo: ApiMessage[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...(context ? [{ role: "system", content: context }] : []),
+    ...messages,
+  ];
+
+  const artifacts: Artifact[] = [];
+
+  // Tool-call rounds, no streaming, until the model stops requesting tools.
+  try {
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+      const res = await fetch(OPENAI_URL, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          model: MODEL,
+          messages: convo,
+          tools: OPENAI_TOOLS,
+          tool_choice: "auto",
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        console.error("OpenAI tool pass error:", res.status, detail.slice(0, 300));
+        return Response.json(
+          { error: "The assistant is unavailable right now." },
+          { status: 502 },
+        );
+      }
+      const json = await res.json();
+      const choice = json.choices?.[0];
+      const toolCalls = choice?.message?.tool_calls;
+
+      if (!toolCalls || toolCalls.length === 0) {
+        // No tools wanted, done with the tool phase.
+        break;
+      }
+
+      // Record the assistant tool-call message, then run each tool.
+      convo.push(choice.message);
+      for (const call of toolCalls) {
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(call.function?.arguments ?? "{}");
+        } catch {
+          args = {};
+        }
+        const result = await runTool(call.function?.name, args);
+        if (result.artifact) artifacts.push(result.artifact);
+        convo.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: result.summary,
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Chat tool phase failed:", err);
+    return Response.json(
+      { error: "The assistant is unavailable right now." },
+      { status: 502 },
+    );
+  }
+
+  // Final streamed reply. The model now has any tool results in context.
+  let upstream: Response;
+  try {
+    upstream = await fetch(OPENAI_URL, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ model: MODEL, stream: true, messages: convo }),
+    });
+  } catch (err) {
+    console.error("Chat stream request failed:", err);
+    return Response.json(
+      { error: "The assistant is unavailable right now." },
+      { status: 502 },
+    );
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const detail = await upstream.text().catch(() => "");
+    console.error("OpenAI chat error:", upstream.status, detail.slice(0, 300));
+    return Response.json(
+      { error: "The assistant is unavailable right now." },
+      { status: 502 },
+    );
+  }
+
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const reader = upstream.body.getReader();
+  let buffer = "";
+
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        // Append the artifacts payload after the text, if any.
+        if (artifacts.length > 0) {
+          controller.enqueue(encoder.encode(SEP + JSON.stringify({ artifacts })));
+        }
+        controller.close();
+        return;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === "[DONE]") {
+          if (artifacts.length > 0) {
+            controller.enqueue(
+              encoder.encode(SEP + JSON.stringify({ artifacts })),
+            );
+          }
+          controller.close();
+          return;
+        }
+        try {
+          const json = JSON.parse(data);
+          const delta = json.choices?.[0]?.delta?.content;
+          if (typeof delta === "string" && delta.length > 0) {
+            controller.enqueue(encoder.encode(delta));
+          }
+        } catch {
+          // ignore partial / non JSON lines
+        }
+      }
+    },
+    cancel() {
+      reader.cancel().catch(() => {});
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
