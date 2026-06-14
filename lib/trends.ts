@@ -206,7 +206,34 @@ const TRENDS: Record<string, Record<string, MedTrend>> = {
 export function getMedTrend(patientId: string, metric: string): MedTrend | null {
   const patientTrends = TRENDS[patientId];
   if (!patientTrends) return null;
-  return patientTrends[metric] ?? null;
+
+  const normalized = normalizeMetric(metric);
+  const canonical = metricAlias(normalized);
+  return (
+    patientTrends[metric] ??
+    patientTrends[normalized] ??
+    patientTrends[canonical] ??
+    (normalized.startsWith("days_supply") ? patientTrends.days_supply : null) ??
+    null
+  );
+}
+
+function normalizeMetric(metric: string): string {
+  return metric
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function metricAlias(metric: string): string {
+  if (metric.includes("ozempic")) return "days_supply_semaglutide";
+  if (metric.includes("synthroid")) return "days_supply_levothyroxine";
+  if (metric.includes("ventolin")) return "days_supply_albuterol";
+  if (metric.includes("glucophage")) return "days_supply_metformin";
+  if (metric.includes("lipitor")) return "days_supply_atorvastatin";
+  if (metric.includes("adderall")) return "days_supply_amphetamine_mixed_salts";
+  return metric;
 }
 
 /**
