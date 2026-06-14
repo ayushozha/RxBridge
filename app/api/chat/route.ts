@@ -4,6 +4,7 @@ import { OPENAI_TOOLS } from "@/lib/tools";
 import { runTool } from "@/lib/tool-runtime";
 import type { Artifact } from "@/lib/artifacts";
 import { PRIMARY_PATIENT_ID, getPatient } from "@/lib/patient-data";
+import { getHealthOverview } from "@/lib/trends";
 
 /**
  * Streaming text chat with the patient assistant, with tool calls.
@@ -56,6 +57,16 @@ export async function POST(req: Request) {
     if (!Array.isArray(messages)) throw new Error("messages must be an array");
   } catch {
     return Response.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
+  const directReply = directChartExplanation(messages, PRIMARY_PATIENT_ID);
+  if (directReply) {
+    return new Response(directReply, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
   }
 
   // Tell the model who the current patient is, so tools that need a patientId
@@ -208,4 +219,38 @@ export async function POST(req: Request) {
       "Cache-Control": "no-store",
     },
   });
+}
+
+function directChartExplanation(
+  messages: ChatMessage[],
+  patientId: string,
+): string | null {
+  const latest = [...messages]
+    .reverse()
+    .find((message) => message.role === "user")
+    ?.content.toLowerCase();
+  if (!latest) return null;
+
+  const asksAboutChart =
+    latest.includes("chart") &&
+    (latest.includes("explain") ||
+      latest.includes("more") ||
+      latest.includes("mean") ||
+      latest.includes("understand"));
+  if (!asksAboutChart) return null;
+
+  const overview = getHealthOverview(patientId);
+  if (!overview || overview.points.length === 0) return null;
+
+  const finalPoint = overview.points[overview.points.length - 1];
+  const finalValues = overview.series
+    .map((series) => {
+      const value = finalPoint[series.key];
+      if (typeof value !== "number") return null;
+      return `${series.label} ends at ${value} ${series.unit ?? overview.unit}`;
+    })
+    .filter((line): line is string => line != null)
+    .join("; ");
+
+  return `That chart is showing days of medication on hand over time. Each line is one medication, and the lower the line gets, the closer that medication is to needing refill action.\n\nOn the latest date, ${finalValues}.\n\nThe main thing to watch is the slope. A steady downward line is expected as doses are used. A line near 7 days means it is time to plan the refill early. A line near 3 days means the refill should be handled today, especially for rescue or critical medications.\n\nDo not change doses based on the chart. Use it to decide what to ask your pharmacist or clinician next.`;
 }
