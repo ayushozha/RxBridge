@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #0f172a; }
+      .sub { font-size: 12px; fill: #64748b; }
+      .box-label { font-size: 13px; font-weight: 600; }
+      .box-desc { font-size: 11px; }
+      .edge { font-size: 10.5px; fill: #475569; }
+      .lane { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; fill: #94a3b8; }
+    </style>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect width="960" height="620" fill="#ffffff"/>
+
+  <!-- Header -->
+  <text x="40" y="46" class="title">RxBridge Architecture</text>
+  <text x="40" y="66" class="sub">Prescription rescue for drug shortages and outbreaks. xAI Grok is the brain; OpenAI Realtime is the second agent on the call.</text>
+
+  <!-- ============ CLIENT (Vercel edge) ============ -->
+  <text x="40" y="104" class="lane">BROWSER  ·  served by VERCEL</text>
+  <rect x="40" y="116" width="880" height="120" rx="14" fill="#f0f6ff" stroke="#bcd7ff"/>
+  <text x="60" y="140" class="box-label" fill="#0f4f9c">Vercel (Next.js 15 App Router, React 19)</text>
+
+  <rect x="60" y="152" width="250" height="70" rx="10" fill="#ffffff" stroke="#1f7ae0"/>
+  <text x="74" y="174" class="box-label" fill="#0f172a">Chat + Voice interface</text>
+  <text x="74" y="192" class="box-desc" fill="#475569">One thread, text or talk.</text>
+  <text x="74" y="208" class="box-desc" fill="#475569">Inline artifacts: charts, tracker,</text>
+  <text x="74" y="222" class="box-desc" fill="#475569">negotiation call, rescue packet.</text>
+
+  <rect x="330" y="152" width="250" height="70" rx="10" fill="#ffffff" stroke="#1f7ae0"/>
+  <text x="344" y="174" class="box-label" fill="#0f172a">Medical data rail</text>
+  <text x="344" y="192" class="box-desc" fill="#475569">Medications, refill timing,</text>
+  <text x="344" y="208" class="box-desc" fill="#475569">live shortage and outbreak alerts</text>
+  <text x="344" y="222" class="box-desc" fill="#475569">with source citations.</text>
+
+  <rect x="600" y="152" width="300" height="70" rx="10" fill="#ffffff" stroke="#7c3aed"/>
+  <text x="614" y="174" class="box-label" fill="#0f172a">Live negotiation call widget</text>
+  <text x="614" y="192" class="box-desc" fill="#475569">Two AI voices negotiate price:</text>
+  <text x="614" y="208" class="box-desc" fill="#7c3aed">Grok voice = pharmacy</text>
+  <text x="614" y="222" class="box-desc" fill="#412991">OpenAI Realtime = RxBridge agent</text>
+
+  <!-- ============ SERVER (Vercel functions) ============ -->
+  <text x="40" y="276" class="lane">VERCEL SERVERLESS FUNCTIONS  ·  Next.js API routes (keys live here, never in the browser)</text>
+  <rect x="40" y="288" width="880" height="116" rx="14" fill="#f6f7f9" stroke="#d8dde6"/>
+
+  <rect x="60" y="304" width="190" height="84" rx="10" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="74" y="326" class="box-label" fill="#0f172a">/api/health-alerts</text>
+  <text x="74" y="344" class="box-desc" fill="#475569">Grok realtime news,</text>
+  <text x="74" y="360" class="box-desc" fill="#475569">matched to the patient's</text>
+  <text x="74" y="376" class="box-desc" fill="#475569">meds. Local refill timing.</text>
+
+  <rect x="262" y="304" width="190" height="84" rx="10" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="276" y="326" class="box-label" fill="#0f172a">/api/chat + tools</text>
+  <text x="276" y="344" class="box-desc" fill="#475569">Grok answers and calls</text>
+  <text x="276" y="360" class="box-desc" fill="#475569">tools that render charts,</text>
+  <text x="276" y="376" class="box-desc" fill="#475569">rescue tracker, packet.</text>
+
+  <rect x="464" y="304" width="200" height="84" rx="10" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="478" y="326" class="box-label" fill="#0f172a">/api/rescue/*</text>
+  <text x="478" y="344" class="box-desc" fill="#475569">Deterministic workflow:</text>
+  <text x="478" y="360" class="box-desc" fill="#475569">shortage, pharmacy stock,</text>
+  <text x="478" y="376" class="box-desc" fill="#475569">substitution, safety, packet.</text>
+
+  <rect x="676" y="304" width="224" height="84" rx="10" fill="#ffffff" stroke="#94a3b8"/>
+  <text x="690" y="326" class="box-label" fill="#0f172a">/api/negotiate</text>
+  <text x="690" y="344" class="box-desc" fill="#475569">Builds the two voice call,</text>
+  <text x="690" y="360" class="box-desc" fill="#475569">generates each line's audio</text>
+  <text x="690" y="376" class="box-desc" fill="#475569">from its provider.</text>
+
+  <!-- ============ PROVIDERS ============ -->
+  <text x="40" y="444" class="lane">AI PROVIDERS</text>
+
+  <!-- xAI primary -->
+  <rect x="40" y="456" width="540" height="132" rx="14" fill="#f4f4f5" stroke="#111111"/>
+  <text x="60" y="482" class="box-label" fill="#111111">xAI Grok  ·  the brain (does almost everything)</text>
+  <rect x="60" y="494" width="240" height="44" rx="8" fill="#ffffff" stroke="#111111"/>
+  <text x="74" y="514" class="box-desc" fill="#0f172a" font-weight="600">grok-4.3 Responses API</text>
+  <text x="74" y="530" class="box-desc" fill="#475569">assistant brain, web_search news</text>
+  <rect x="312" y="494" width="248" height="44" rx="8" fill="#ffffff" stroke="#111111"/>
+  <text x="326" y="514" class="box-desc" fill="#0f172a" font-weight="600">Grok Voice Agent API</text>
+  <text x="326" y="530" class="box-desc" fill="#475569">wss /v1/realtime, the pharmacy voice</text>
+  <text x="60" y="566" class="box-desc" fill="#475569">Patient assistant, realtime shortage and outbreak intelligence, and one side of the call.</text>
+
+  <!-- OpenAI secondary -->
+  <rect x="600" y="456" width="300" height="132" rx="14" fill="#f3f0fb" stroke="#412991"/>
+  <text x="620" y="482" class="box-label" fill="#412991">OpenAI  ·  second agent on the call</text>
+  <rect x="620" y="494" width="260" height="44" rx="8" fill="#ffffff" stroke="#412991"/>
+  <text x="634" y="514" class="box-desc" fill="#0f172a" font-weight="600">OpenAI Realtime (gpt-realtime-2)</text>
+  <text x="634" y="530" class="box-desc" fill="#475569">the RxBridge agent voice on the call</text>
+  <text x="620" y="566" class="box-desc" fill="#475569">Used only as the second negotiating</text>
+  <text x="620" y="580" class="box-desc" fill="#475569">voice, so two agents talk in real time.</text>
+
+  <!-- edges browser -> functions -->
+  <line x1="185" y1="236" x2="155" y2="288" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <line x1="455" y1="236" x2="357" y2="288" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <line x1="750" y1="236" x2="788" y2="288" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+  <!-- edges functions -> providers -->
+  <line x1="155" y1="388" x2="220" y2="456" stroke="#111111" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <text x="120" y="430" class="edge">news + brain</text>
+  <line x1="357" y1="388" x2="300" y2="456" stroke="#111111" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <line x1="788" y1="388" x2="430" y2="456" stroke="#111111" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <text x="560" y="430" class="edge">pharmacy voice (Grok)</text>
+  <line x1="788" y1="388" x2="740" y2="456" stroke="#412991" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <text x="700" y="446" class="edge" fill="#412991">agent voice (OpenAI)</text>
+</svg>
