@@ -11,6 +11,7 @@ import { caseToTracker } from "@/lib/rescue-view";
  * carrying artifacts. The record-separator control character (U+001E) will not
  * appear in normal model text. */
 const ARTIFACT_SEPARATOR = String.fromCharCode(30);
+const CHAT_TIMEOUT_MS = 45_000;
 
 /**
  * Streaming text chat against /api/chat.
@@ -52,10 +53,14 @@ export function useTextChat() {
       ]);
       setSending(true);
 
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
+
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             messages: history.map((m) => ({ role: m.speaker, content: m.text })),
           }),
@@ -65,19 +70,7 @@ export function useTextChat() {
           throw new Error(j.error ?? "The assistant could not reply.");
         }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let streamed = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          streamed += decoder.decode(value, { stream: true });
-          // Only the text before the separator is shown live.
-          const visible = stripDashes(streamed.split(ARTIFACT_SEPARATOR)[0]);
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, text: visible } : m)),
-          );
-        }
+        const streamed = await res.text();
 
         // After the stream ends, split off any artifacts payload.
         const [bodyText, artifactJson] = streamed.split(ARTIFACT_SEPARATOR);
@@ -99,7 +92,13 @@ export function useTextChat() {
           ),
         );
       } catch (e) {
-        setError(e instanceof Error ? e.message : "The assistant could not reply.");
+        const message =
+          e instanceof DOMException && e.name === "AbortError"
+            ? "The assistant took too long to reply. Please try again."
+            : e instanceof Error
+              ? e.message
+              : "The assistant could not reply.";
+        setError(message);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -112,6 +111,7 @@ export function useTextChat() {
           ),
         );
       } finally {
+        window.clearTimeout(timeout);
         setSending(false);
       }
     },
